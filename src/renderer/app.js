@@ -47,6 +47,7 @@
     personFilter: null,
     libraryDirty: false,
     navigationToken: 0,
+    dragStartLng: null,
   };
 
   const ui = {
@@ -571,14 +572,28 @@
       }).addTo(state.map);
       setMapStyle(state.currentMapStyle);
       L.control.zoom({ position: 'topright' }).addTo(state.map);
-      state.map.on('move', () => {
-        if (state.syncingMapLatitude || typeof state.mapLockedLat !== 'number') return;
-        if (state.map.getZoom() > MAP_MIN_ZOOM + 0.5) return;
-        const center = state.map.getCenter();
-        if (Math.abs(center.lat - state.mapLockedLat) < 0.0001) return;
-        state.syncingMapLatitude = true;
-        state.map.panTo([state.mapLockedLat, center.lng], { animate: false });
-        state.syncingMapLatitude = false;
+      // Axis-Constrained Interactions
+      // 1. Horizontal Scroll-to-Pan (matching timeline scrub)
+      const mapContainer = state.map.getContainer();
+      mapContainer.addEventListener('wheel', (e) => {
+        // If horizontal scroll is dominant, pan map horizontally
+        if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+          state.map.panBy([e.deltaX, 0], { animate: false });
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }, { capture: true, passive: false });
+
+      // 2. Vertical-Only Dragging
+      state.map.on('dragstart', () => {
+        state.dragStartLng = state.map.getCenter().lng;
+      });
+      state.map.on('drag', () => {
+        if (typeof state.dragStartLng === 'number') {
+          const center = state.map.getCenter();
+          // Force longitude to stay fixed during drag, allow latitude change
+          state.map.setView([center.lat, state.dragStartLng], state.map.getZoom(), { animate: false });
+        }
       });
       // Show Fit Memories button whenever user pans/zooms manually
       state.map.on('movestart', () => {
