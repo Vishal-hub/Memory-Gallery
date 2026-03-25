@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Local databases and caches
+memory_graph.db
+memory_graph.db-journal
+.cache/
+temp/
+logs/
+*.log
+
+# Build & OS
+dist/
+build/
+out/
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+
+# IDEs
+.vscode/
+.idea/
