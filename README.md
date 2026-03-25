@@ -2,6 +2,8 @@
 
 **Memory Graph** is a futuristic, AI-powered desktop gallery designed to help you rediscover your memories. It goes beyond simple folders, using state-of-the-art machine learning to organize your photos and videos by people, locations, and visual concepts.
 
+![Memory Graph Timeline](docs/images/timeline.png)
+
 ![License](https://img.shields.io/badge/license-ISC-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)
 
@@ -12,11 +14,17 @@
 ### 📅 Semantic Timeline
 Explore your memories on a dynamic, zoomable timeline. The app automatically clusters photos into "Events" based on time and visual similarity, creating a cohesive story of your life.
 
+![Semantic Timeline](docs/images/timeline_2.png)
+
 ### 👤 Identity Discovery
 Advanced face recognition (DETR + CLIP) identifies individuals across your entire library. Group photos by person, name your friends, and find every moment you shared with them.
 
+![Identity Gallery](docs/images/people.png)
+
 ### 📍 Global Map Mode
 See where your memories were made. Photos with GPS metadata are pinned to an interactive world map, allowing you to re-travel your favorite journeys.
+
+![Map Mode](docs/images/map.png)
 
 ### 🔍 Intelligent Search
 - **Keyword Search**: Find photos by date, location, or automatically identified tags.
