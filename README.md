@@ -14,7 +14,7 @@
 ### 📅 Semantic Timeline
 Explore your memories on a dynamic, zoomable timeline. The app automatically clusters photos into "Events" based on time and visual similarity, creating a cohesive story of your life.
 
-![Semantic Timeline]()
+![Semantic Timeline](docs/images/timeline_2.png)
 
 ### 👤 Identity Discovery
 Advanced face recognition (DETR + CLIP) identifies individuals across your entire library. Group photos by person, name your friends, and find every moment you shared with them.
