@@ -246,8 +246,10 @@ if (hasSqlite) {
       faceCount: 0,
       embedding: null,
       thumbnailPath: null,
+      convertedPath: null,
       facesIndexed: 0,
       visualIndexed: 0,
+      personClass: 'none',
       confidence: 1.0,
       lastSeenRun: 1,
     });
@@ -269,7 +271,8 @@ if (hasSqlite) {
       mtimeMs: Date.now(), resolvedTimeMs: Date.now(), resolvedSource: 'mtime',
       latitude: null, longitude: null, locationSource: null, placeName: null,
       aiTags: 'dog, park', faceCount: 0, embedding: null, thumbnailPath: null,
-      facesIndexed: 0, visualIndexed: 1, confidence: 0.8, lastSeenRun: 1,
+      convertedPath: null,
+      facesIndexed: 0, visualIndexed: 1, personClass: 'none', confidence: 0.8, lastSeenRun: 1,
     });
 
     const active = getActiveMediaItems(db);
@@ -293,7 +296,8 @@ if (hasSqlite) {
       mtimeMs: Date.now(), resolvedTimeMs: Date.now(), resolvedSource: 'mtime',
       latitude: 10.0, longitude: 20.0, locationSource: 'exif', placeName: null,
       aiTags: null, faceCount: 0, embedding: null, thumbnailPath: null,
-      facesIndexed: 0, visualIndexed: 0, confidence: 1.0, lastSeenRun: 1,
+      convertedPath: null,
+      facesIndexed: 0, visualIndexed: 0, personClass: 'none', confidence: 1.0, lastSeenRun: 1,
     });
 
     const stats = getIndexStats(db);
