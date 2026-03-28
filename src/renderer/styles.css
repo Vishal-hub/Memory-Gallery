@@ -1875,7 +1875,7 @@ button:active {
 .loading-screen {
   position: fixed;
   top: 0;
-  left: 64px;
+  left: 0;
   right: 0;
   bottom: 0;
   display: flex;
@@ -1883,7 +1883,9 @@ button:active {
   align-items: center;
   justify-content: center;
   gap: 2.5rem;
-  z-index: 300;
+  z-index: 600;
+  background: var(--bg-color);
+  backdrop-filter: blur(24px) saturate(180%);
   animation: fadeIn 0.5s ease-out;
   pointer-events: none;
 }
@@ -1966,6 +1968,9 @@ button:active {
   display: flex;
   gap: 0.4rem;
   align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  max-width: 90vw;
 }
 
 .loading-phase {
