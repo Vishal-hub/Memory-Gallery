@@ -143,6 +143,10 @@ export function applyFilters() {
         }
     } else {
         ui.timeLabel.innerText = 'No clusters available';
+        if (state.allClusters && state.allClusters.length > 0) {
+            renderEmptyState('No memories found in the selected time range. Move the slider to see more.');
+            return;
+        }
     }
 
     const isSearching = state.showMap && document.activeElement === ui.searchInput;

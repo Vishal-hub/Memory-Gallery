@@ -1120,27 +1120,34 @@ function renderTree(data) {
 }
 
 function renderEmptyTree() {
-    _nodesGroup.innerHTML = '';
-    _edgesGroup.innerHTML = '';
-    if (_bandContainer) _bandContainer.innerHTML = '';
+    const container = document.getElementById('familyTreeContainer');
+    if (!container) return;
 
-    const text = document.createElementNS(NS, 'text');
-    text.setAttribute('x', '50%');
-    text.setAttribute('y', '45%');
-    text.setAttribute('text-anchor', 'middle');
-    text.setAttribute('dominant-baseline', 'central');
-    text.setAttribute('class', 'tree-empty-text');
-    text.textContent = 'No people recognized yet.';
-    _nodesGroup.appendChild(text);
+    container.innerHTML = '';
+    const empty = document.createElement('div');
+    empty.className = 'empty-state-view';
 
-    const sub = document.createElementNS(NS, 'text');
-    sub.setAttribute('x', '50%');
-    sub.setAttribute('y', '52%');
-    sub.setAttribute('text-anchor', 'middle');
-    sub.setAttribute('dominant-baseline', 'central');
-    sub.setAttribute('class', 'tree-empty-sub');
-    sub.textContent = 'Add photos with faces to build your family tree.';
-    _nodesGroup.appendChild(sub);
+    const icon = document.createElement('div');
+    icon.className = 'empty-icon';
+    icon.innerHTML = `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="5" r="3" />
+        <circle cx="6" cy="19" r="3" />
+        <circle cx="18" cy="19" r="3" />
+        <path d="M12 8l-4 8m8-8l4 8" />
+    </svg>`;
+
+    const title = document.createElement('h2');
+    title.innerText = 'Family tree is empty';
+
+    const text = document.createElement('p');
+    text.innerText = state.indexingComplete.faces
+        ? 'Identified people will appear here. Link them together to start building your family tree!'
+        : 'Still analyzing your photos for faces. Once identies are found, you can return here to build your tree.';
+
+    empty.appendChild(icon);
+    empty.appendChild(title);
+    empty.appendChild(text);
+    container.appendChild(empty);
 }
 
 export async function openFamilyTree(switchGroupByFn) {

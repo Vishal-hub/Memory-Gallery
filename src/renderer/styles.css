@@ -1445,6 +1445,45 @@ button:active {
   color: var(--text-secondary);
 }
 
+.empty-state-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  width: 100%;
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-secondary);
+  animation: fadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  gap: 1.5rem;
+  user-select: none;
+}
+
+.empty-state-view .empty-icon {
+  width: 64px;
+  height: 64px;
+  opacity: 0.15;
+  margin-bottom: 0.5rem;
+  color: var(--accent-color);
+}
+
+.empty-state-view h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.empty-state-view p {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  max-width: 420px;
+  margin: 0;
+  opacity: 0.8;
+}
+
 .view-header {
   position: sticky;
   top: 0;
@@ -2532,21 +2571,6 @@ button:active {
   to {
     stroke-dashoffset: 0;
   }
-}
-
-/* --- Empty state --- */
-
-.tree-empty-text {
-  fill: var(--text-secondary);
-  font-size: 18px;
-  font-weight: 500;
-  font-family: var(--font-main);
-}
-
-.tree-empty-sub {
-  fill: var(--text-muted);
-  font-size: 13px;
-  font-family: var(--font-main);
 }
 
 /* --- Relationship modal --- */

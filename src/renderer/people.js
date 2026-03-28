@@ -50,6 +50,37 @@ export function hidePeopleToolbar() {
 function renderPeopleGrid(people, wrapper, switchGroupByFn) {
     const existingGrid = wrapper.querySelector('.grid');
     if (existingGrid) existingGrid.remove();
+    const existingEmpty = wrapper.querySelector('.empty-state-view');
+    if (existingEmpty) existingEmpty.remove();
+
+    if (people.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'empty-state-view';
+        empty.style.height = '40vh'; // Smaller height since it's below a header
+        empty.style.paddingTop = '0';
+        
+        const icon = document.createElement('div');
+        icon.className = 'empty-icon';
+        icon.innerHTML = `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="9" cy="7" r="4"></circle>
+            <line x1="23" y1="11" x2="17" y2="11"></line>
+        </svg>`;
+        
+        const title = document.createElement('h2');
+        title.innerText = 'No identities discovered';
+        
+        const text = document.createElement('p');
+        text.innerText = state.indexingComplete.faces 
+            ? 'We couldn\'t find any clear faces in your photos. Try adding more folders or checking your settings.'
+            : 'Face recognition is still processing your library. New identities will appear here automatically.';
+        
+        empty.appendChild(icon);
+        empty.appendChild(title);
+        empty.appendChild(text);
+        wrapper.appendChild(empty);
+        return;
+    }
 
     const grid = document.createElement('div');
     grid.className = 'grid';

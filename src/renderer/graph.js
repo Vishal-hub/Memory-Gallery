@@ -1,5 +1,5 @@
 import { GRAPH, state, ui } from './state.js';
-import { toFileSrc, formatDate, nodeCountLabel, getDisplayPath, getFullSizePath } from './utils.js';
+import { toFileSrc, formatDate, nodeCountLabel, getDisplayPath, getFullSizePath, renderEmptyState } from './utils.js';
 import { showLightbox } from './lightbox.js';
 import { updateMapMarkers, setMapVisibility } from './map.js';
 
@@ -273,6 +273,11 @@ export function renderClusters(clusters, options = {}) {
     state.filteredClusters = clusters;
     setGraphTransformEnabled(true);
     ui.gallery.innerHTML = '';
+
+    if (clusters.length === 0) {
+        renderEmptyState('No photos found. Open Settings to add folders with JPG/PNG/WEBP images.');
+        return;
+    }
 
     computeNodePosition._cache = null;
     computeNodePosition._cacheCount = 0;
