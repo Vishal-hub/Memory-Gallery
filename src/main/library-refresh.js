@@ -88,7 +88,7 @@ function createLibraryRefreshManager({ app, db, embeddingWorker, visionFaceWorke
   let lastUserInteractionAt = 0;
   let latestPipelineBenchmark = null;
   let benchmarkHistory = [];
-  const canUseFaceWorker = process.platform !== 'win32';
+  const canUseFaceWorker = true;
 
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(BENCHMARK_HISTORY_KEY);
@@ -311,6 +311,7 @@ function createLibraryRefreshManager({ app, db, embeddingWorker, visionFaceWorke
 
       // ---- Stage A: Quick-insert (returns in ~1-3s) ----
       const quickResult = await runIndexing(db, app, {
+        reason,
         deferVisualIndexing: true,
         deferFaceIndexing: true,
         deferSemanticEmbedding: true,
@@ -459,6 +460,7 @@ function createLibraryRefreshManager({ app, db, embeddingWorker, visionFaceWorke
 
     libraryDirty = false;
     const result = await runIndexing(db, app, {
+      reason,
       deferVisualIndexing: true,
       deferFaceIndexing: true,
       deferSemanticEmbedding: true,
@@ -951,7 +953,17 @@ function createLibraryRefreshManager({ app, db, embeddingWorker, visionFaceWorke
         });
       }
 
-      const changedPaths = Array.from(pendingChangedPaths).filter((filePath) => fs.existsSync(filePath));
+            const changedPaths = Array.from(pendingChangedPaths).filter((filePath) => {
+        if (!fs.existsSync(filePath)) return false;
+        try {
+          const stat = fs.statSync(filePath);
+          const existing = db.prepare('SELECT mtime_ms, size FROM media_items WHERE path = ?').get(filePath);
+          if (!existing) return true;
+          return (stat.mtimeMs !== existing.mtime_ms || stat.size !== existing.size);
+        } catch (e) {
+          return true;
+        }
+      });
       pendingChangedPaths.clear();
       if (changedPaths.length > 0) {
         requestIncrementalRefresh(changedPaths, 'watch').catch((error) => {

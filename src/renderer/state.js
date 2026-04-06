@@ -127,6 +127,8 @@ export const ui = {
     treeResetBtn: document.getElementById('treeResetBtn'),
     indexingHint: document.getElementById('indexingHint'),
     loadingSkipBtn: document.getElementById('loadingSkipBtn'),
+    gpuSafeModeCheckbox: document.getElementById('gpuSafeModeCheckbox'),
+    gpuSafeModeCheckbox: document.getElementById('gpuSafeModeCheckbox'),
 };
 
 const critical = ['viewport', 'gallery', 'connections', 'status'];

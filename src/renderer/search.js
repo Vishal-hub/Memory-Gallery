@@ -162,7 +162,7 @@ export function renderSearchResults(items) {
     _lastEmptyStateSignature = '';
 }
 
-export function applyFilters() {
+export function applyFilters(forceRender = false) {
     if (state.inDetailsView && !state.searchQuery) {
         if (state.treeViewActive || state.openedFromPeople || state.openedFromTree || state.openedFromMap) {
             return;
@@ -221,13 +221,13 @@ export function applyFilters() {
 
             ui.timeLabel.innerText = `${uniqueItems.length} matching items (${(state.semanticMatches || []).length} semantic)`;
             const nextSearchSignature = buildItemRenderSignature(uniqueItems);
-            if (nextSearchSignature !== _lastSearchRenderSignature) {
+            if (forceRender || nextSearchSignature !== _lastSearchRenderSignature) {
                 renderSearchResults(uniqueItems);
             }
         } else {
             ui.timeLabel.innerText = 'No matches found';
             const emptySignature = `search-empty|${state.searchQuery}`;
-            if (_lastEmptyStateSignature !== emptySignature) {
+            if (forceRender || _lastEmptyStateSignature !== emptySignature) {
                 renderEmptyState('No matches found.');
                 _lastEmptyStateSignature = emptySignature;
                 _lastSearchRenderSignature = '';
@@ -254,7 +254,7 @@ export function applyFilters() {
         ui.timeLabel.innerText = 'No clusters available';
         if (state.allClusters && state.allClusters.length > 0) {
             const emptySignature = `timeline-empty|${state.groupBy}|${timelineVal}|${state.faceFilter || ''}|${state.personFilter || ''}`;
-            if (_lastEmptyStateSignature !== emptySignature) {
+            if (forceRender || _lastEmptyStateSignature !== emptySignature) {
                 renderEmptyState('No memories found in the selected time range. Move the slider to see more.');
                 _lastEmptyStateSignature = emptySignature;
                 _lastTimelineRenderSignature = '';
@@ -266,7 +266,7 @@ export function applyFilters() {
 
     const isSearching = state.showMap && document.activeElement === ui.searchInput;
     const nextTimelineSignature = buildClusterRenderSignature(filtered);
-    if (_lastTimelineRenderSignature === nextTimelineSignature && !state.inDetailsView) {
+    if (!forceRender && _lastTimelineRenderSignature === nextTimelineSignature && !state.inDetailsView) {
         return;
     }
     _lastTimelineRenderSignature = nextTimelineSignature;

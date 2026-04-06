@@ -26,6 +26,25 @@ function configureChromiumCachePaths() {
 
 function startApp() {
   configureChromiumCachePaths();
+
+  // GPU-safe mode: read the flag BEFORE app is ready (Chromium switches
+  // must be appended before the first BrowserWindow is created).
+  try {
+    const Database = require('better-sqlite3');
+    const earlyDbPath = path.join(app.getPath('userData'), 'memory-index.sqlite');
+    if (require('fs').existsSync(earlyDbPath)) {
+      const earlyDb = new Database(earlyDbPath, { readonly: true, fileMustExist: true });
+      const row = earlyDb.prepare("SELECT value FROM settings WHERE key = 'gpu_safe_mode'").get();
+      earlyDb.close();
+      if (row && row.value === 'true') {
+        console.log('[GPU] Safe mode enabled — disabling hardware acceleration');
+        app.disableHardwareAcceleration();
+      }
+    }
+  } catch (_) {
+    // DB may not exist yet on first launch — that's fine
+  }
+
   app.whenReady().then(() => {
     const dbPath = path.join(app.getPath('userData'), 'memory-index.sqlite');
     const db = createDb(dbPath);

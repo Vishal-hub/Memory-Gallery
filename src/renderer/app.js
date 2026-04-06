@@ -336,7 +336,7 @@ function restoreTimelineFromCache() {
     ? [...state.filteredClusters]
     : [...state.allClusters];
   if (ui.slider) ui.slider.oninput = debouncedApplyFilters;
-  applyFilters();
+  applyFilters(true);
   if (_pendingCacheSync) {
     debouncedSyncCurrentGroupCache(200);
   }
@@ -1503,6 +1503,10 @@ function bindInteractions() {
       const settings = await window.api.invoke('get-index-roots');
       state.indexRoots = Array.isArray(settings) ? settings : (settings?.roots || []);
       ui.includeVideosCheckbox.checked = settings.includeVideos !== false;
+      try {
+        const gpuSafe = await window.api.invoke('get-gpu-safe-mode');
+        if (ui.gpuSafeModeCheckbox) ui.gpuSafeModeCheckbox.checked = gpuSafe;
+      } catch (_) {}
       renderRootsList();
       ui.settingsModal.classList.remove('hidden');
     } catch (err) {
@@ -1525,6 +1529,12 @@ function bindInteractions() {
       roots: state.indexRoots,
       includeVideos: ui.includeVideosCheckbox.checked
     });
+    if (ui.gpuSafeModeCheckbox) {
+      const result = await window.api.invoke('set-gpu-safe-mode', ui.gpuSafeModeCheckbox.checked);
+      if (result?.requiresRestart) {
+        console.log('[Settings] GPU safe mode changed — restart required');
+      }
+    }
     ui.settingsModal.classList.add('hidden');
     refreshLibrary();
   };

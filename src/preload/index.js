@@ -22,6 +22,8 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'clear-all-relationships',
   'get-shared-photos',
   'select-folder',
+  'get-gpu-safe-mode',
+  'set-gpu-safe-mode',
 ]);
 
 const ALLOWED_RECEIVE_CHANNELS = new Set([

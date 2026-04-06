@@ -207,7 +207,21 @@ function registerIpcHandlers({ app, db, refreshManager, getLatestRunStats, setLa
     return result.filePaths[0];
   });
 
-  ipcMain.on('user-activity', () => {
+  ipcMain.handle('get-gpu-safe-mode', async () => {
+    try {
+      const row = db.prepare("SELECT value FROM settings WHERE key = 'gpu_safe_mode'").get();
+      return row ? row.value === 'true' : false;
+    } catch (_) {
+      return false;
+    }
+  });
+
+  ipcMain.handle('set-gpu-safe-mode', async (event, enabled) => {
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run('gpu_safe_mode', enabled ? 'true' : 'false');
+    return { success: true, requiresRestart: true };
+  });
+
+    ipcMain.on('user-activity', () => {
     if (typeof refreshManager.noteUserInteraction === 'function') {
       refreshManager.noteUserInteraction();
     }
