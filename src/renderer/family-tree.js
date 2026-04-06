@@ -1153,6 +1153,7 @@ function renderEmptyTree() {
 export async function openFamilyTree(switchGroupByFn) {
     _switchGroupByFn = switchGroupByFn;
     state.treeViewActive = true;
+    state.peopleViewActive = false;
     state.inDetailsView = true;
 
     showTreeToolbar();

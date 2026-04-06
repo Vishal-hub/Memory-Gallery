@@ -1,7 +1,13 @@
 import { GRAPH, state, ui } from './state.js';
-import { toFileSrc, formatDate, nodeCountLabel, getDisplayPath, getFullSizePath, renderEmptyState } from './utils.js';
+import { toFileSrc, formatDate, nodeCountLabel, getDisplayPath, renderEmptyState, renderGridIncrementally } from './utils.js';
 import { showLightbox } from './lightbox.js';
 import { updateMapMarkers, setMapVisibility } from './map.js';
+
+const VIRTUALIZE_CLUSTER_THRESHOLD = 120;
+const VIRTUAL_OVERSCAN_PX = 420;
+const CONNECTION_STEP_MEDIUM = 2;
+const CONNECTION_STEP_LARGE = 3;
+const STAR_RENDER_LIMIT = 700;
 
 function seededRandom(seed) {
     let s = seed % 2147483647;
@@ -73,6 +79,10 @@ export function setTransform() {
     ui.gallery.style.transform = transform;
     ui.connections.style.transform = transform;
 
+    if (state.virtualizedGraphActive) {
+        scheduleVisibleClusterSync();
+    }
+
     const outThreshold = 0.75;
     const outEnd = 0.18;
     const morphFactor = Math.max(0, Math.min(1, (outThreshold - state.scale) / (outThreshold - outEnd)));
@@ -81,6 +91,7 @@ export function setTransform() {
 
 export function resetViewportContext() {
     state.inDetailsView = false;
+    state.peopleViewActive = false;
     state.openedFromMap = false;
     state.openedFromPeople = false;
     state.openedFromTree = false;
@@ -101,10 +112,11 @@ function updateMorphedLayout(morphFactor) {
     const centerX = GRAPH.width / 2;
     const centerY = GRAPH.height / 2;
     const count = state.lastPositions.length;
+    const totalCount = state.filteredClusters.length || count;
     const circleRadius = Math.min(GRAPH.height / 2 - 80, Math.max(250, count * 18));
 
     const morphedPositions = state.lastPositions.map((pos, i) => {
-        const base = computeNodePosition(i, count);
+        const base = computeNodePosition(pos.index ?? i, totalCount);
 
         const angle = (i / count) * Math.PI * 2;
         const circleX = centerX + circleRadius * Math.cos(angle);
@@ -127,7 +139,7 @@ function updateMorphedLayout(morphFactor) {
         return { ...pos, x, y };
     });
 
-    redrawConnections(morphedPositions, morphFactor);
+    scheduleConnectionsRedraw(morphedPositions, morphFactor);
 }
 
 export function redrawConnections(positions, morphFactor = 0) {
@@ -145,6 +157,9 @@ export function redrawConnections(positions, morphFactor = 0) {
 
     const fragment = document.createDocumentFragment();
     const fade = Math.max(0, 1 - morphFactor * 1.5);
+    const totalVisible = positions.length;
+    const totalClusters = state.filteredClusters.length || totalVisible;
+    const connectionStep = totalVisible > 320 ? CONNECTION_STEP_LARGE : totalVisible > 180 ? CONNECTION_STEP_MEDIUM : 1;
 
     const nodeRects = positions.map(pos => {
         const el = state.clusterElements.get(pos.id);
@@ -153,9 +168,9 @@ export function redrawConnections(positions, morphFactor = 0) {
         return { x: pos.x, y: pos.y, w, h, cx: pos.x + w / 2, cy: pos.y + h / 2 };
     });
 
-    for (let i = 0; i < positions.length - 1; i++) {
+    for (let i = 0; i < positions.length - connectionStep; i += connectionStep) {
         const a = nodeRects[i];
-        const b = nodeRects[i + 1];
+        const b = nodeRects[i + connectionStep];
 
         const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
         line.setAttribute('x1', a.x + a.w);
@@ -163,11 +178,13 @@ export function redrawConnections(positions, morphFactor = 0) {
         line.setAttribute('x2', b.x);
         line.setAttribute('y2', b.cy);
         line.setAttribute('class', 'constellation-line');
-        line.style.opacity = fade * 0.45;
+        line.style.opacity = fade * (connectionStep === 1 ? 0.45 : 0.28);
         fragment.appendChild(line);
     }
 
-    const starCount = Math.max(40, Math.round(GRAPH.width * GRAPH.height / 12000));
+    const starCount = totalClusters > STAR_RENDER_LIMIT
+        ? Math.max(12, Math.round(totalVisible / 20))
+        : Math.max(30, Math.min(140, Math.round(GRAPH.width * GRAPH.height / 20000)));
     for (let s = 0; s < starCount; s++) {
         const sx = seededRandom(s * 7919 + 11) * GRAPH.width;
         const sy = seededRandom(s * 6271 + 37) * GRAPH.height;
@@ -191,7 +208,7 @@ export function redrawConnections(positions, morphFactor = 0) {
         dot.setAttribute('r', size);
         dot.setAttribute('class', bright ? 'star-dot star-dot-bright' : 'star-dot');
         dot.style.animationDelay = `${seededRandom(s * 4919 + 71) * -8}s`;
-        dot.style.opacity = fade;
+        dot.style.opacity = totalClusters > STAR_RENDER_LIMIT ? fade * 0.5 : fade;
         fragment.appendChild(dot);
     }
 
@@ -213,9 +230,10 @@ export function centerOnPositions(positions) {
 
     state.scale = 1.0;
     state.idealScale = 1;
+    const totalCount = state.filteredClusters.length || positions.length;
 
     positions.forEach((pos, i) => {
-        const p = computeNodePosition(i, positions.length);
+        const p = computeNodePosition(pos.index ?? i, totalCount);
         pos.x = p.x;
         pos.y = p.y;
         const el = state.clusterElements.get(pos.id);
@@ -252,7 +270,7 @@ export function centerOnPositions(positions) {
     state.idealOffsetY = state.offsetY;
 
     setTransform();
-    redrawConnections(positions);
+    redrawConnections(state.virtualizedGraphActive ? state.lastPositions : positions);
 }
 
 function getRelatedClusters(currentEventId) {
@@ -267,30 +285,47 @@ function getRelatedClusters(currentEventId) {
 }
 
 let _renderGen = 0;
+let _visibleClusterSyncRaf = 0;
+let _connectionRedrawRaf = 0;
+let _pendingConnectionPositions = null;
+let _pendingMorphFactor = 0;
+let _lastLayoutViewportWidth = 0;
+let _lastLayoutViewportHeight = 0;
+let _imageLoadRedrawTimer = 0;
 
-export function renderClusters(clusters, options = {}) {
-    const gen = ++_renderGen;
-    state.filteredClusters = clusters;
-    setGraphTransformEnabled(true);
-    ui.gallery.innerHTML = '';
+function scheduleVisibleClusterSync() {
+    if (_visibleClusterSyncRaf) return;
+    _visibleClusterSyncRaf = requestAnimationFrame(() => {
+        _visibleClusterSyncRaf = 0;
+        syncVisibleClusters();
+    });
+}
 
-    if (clusters.length === 0) {
-        renderEmptyState('No photos found. Open Settings to add folders with JPG/PNG/WEBP images.');
-        return;
-    }
+export function scheduleConnectionsRedraw(positions, morphFactor = 0) {
+    _pendingConnectionPositions = positions;
+    _pendingMorphFactor = morphFactor;
+    if (_connectionRedrawRaf) return;
+    _connectionRedrawRaf = requestAnimationFrame(() => {
+        _connectionRedrawRaf = 0;
+        redrawConnections(_pendingConnectionPositions, _pendingMorphFactor);
+    });
+}
 
-    computeNodePosition._cache = null;
-    computeNodePosition._cacheCount = 0;
-    computeNodePosition(0, clusters.length);
+function scheduleImageLoadConnectionsRedraw(gen) {
+    if (gen !== _renderGen) return;
+    if (_imageLoadRedrawTimer) return;
+    _imageLoadRedrawTimer = setTimeout(() => {
+        _imageLoadRedrawTimer = 0;
+        if (gen !== _renderGen) return;
+        scheduleConnectionsRedraw(state.lastPositions);
+    }, 120);
+}
 
-    ui.gallery.style.width = `${GRAPH.width}px`;
-    ui.gallery.style.height = `${GRAPH.height}px`;
-    ui.connections.style.width = `${GRAPH.width}px`;
-    ui.connections.style.height = `${GRAPH.height}px`;
-    ui.connections.setAttribute('width', GRAPH.width);
-    ui.connections.setAttribute('height', GRAPH.height);
-    ui.connections.setAttribute('viewBox', `0 0 ${GRAPH.width} ${GRAPH.height}`);
+function shouldVirtualizeClusters(clusters) {
+    return Array.isArray(clusters) && clusters.length > VIRTUALIZE_CLUSTER_THRESHOLD && !state.showMap;
+}
 
+function ensureConnectionGradient() {
     if (!ui.connections.querySelector('#connGrad')) {
         const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
         const grad = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
@@ -321,138 +356,332 @@ export function renderClusters(clusters, options = {}) {
         const grad = ui.connections.querySelector('#connGrad');
         grad.setAttribute('x2', String(GRAPH.width));
     }
-
-    const positions = [];
-    state.clusterElements.clear();
-
-    clusters.forEach((cluster, index) => {
-        if (!cluster.items || cluster.items.length === 0) return;
-
-        const div = document.createElement('div');
-        div.className = 'cluster';
-        div.setAttribute('role', 'button');
-        div.setAttribute('tabindex', '0');
-        div.setAttribute('aria-label', `${cluster.placeName || cluster.label || ''} — ${nodeCountLabel(cluster)}`);
-
-        const pos = computeNodePosition(index, clusters.length);
-
-        positions.push({ id: cluster.id, x: pos.x, y: pos.y });
-        div.style.left = `${pos.x}px`;
-        div.style.top = `${pos.y}px`;
-        div.style.setProperty('--node-scale', pos.scale);
-
-        const perNode = 0.55;
-        const cycleDur = Math.max(5, clusters.length * perNode + 2);
-        div.style.setProperty('--wave-total', `${cycleDur.toFixed(2)}s`);
-        div.style.setProperty('--wave-delay', `${(index * perNode).toFixed(2)}s`);
-
-        div.addEventListener('dblclick', (e) => {
-            e.stopPropagation();
-            openCluster(cluster.id);
-        });
-
-        div.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                e.stopPropagation();
-                openCluster(cluster.id);
-            }
-        });
-
-        div.addEventListener('mousedown', (e) => {
-            if (state.inDetailsView) return;
-            e.stopPropagation();
-            const target = positions.find((p) => p.id === cluster.id);
-            if (!target) return;
-            state.draggedNodeId = cluster.id;
-            state.nodeDragMoved = false;
-            target.startX = target.x;
-            target.startY = target.y;
-
-            const rect = ui.viewport.getBoundingClientRect();
-            const worldX = (e.clientX - rect.left - state.offsetX) / state.scale;
-            const worldY = (e.clientY - rect.top - state.offsetY) / state.scale;
-            target.dragOffsetX = worldX - target.x;
-            target.dragOffsetY = worldY - target.y;
-            ui.viewport.classList.add('dragging');
-        });
-
-        const ring = document.createElement('div');
-        ring.className = 'img-ring';
-
-        const displayPath = getDisplayPath(cluster.items[0]);
-        const hasThumbnail = Boolean(displayPath);
-
-        if (!hasThumbnail) {
-            ring.classList.add('shimmer');
-        }
-
-        if (cluster.items[0].type === 'video') {
-            const video = document.createElement('video');
-            video.src = toFileSrc(cluster.items[0].path);
-            video.width = 108;
-            video.height = 108;
-            video.muted = true;
-            video.autoplay = true;
-            video.loop = true;
-            video.playsInline = true;
-            ring.appendChild(video);
-        } else {
-            const img = document.createElement('img');
-            if (hasThumbnail) {
-                img.src = toFileSrc(displayPath);
-            }
-            img.loading = 'lazy';
-            img.onload = () => {
-                ring.classList.remove('shimmer');
-                if (gen === _renderGen) redrawConnections(state.lastPositions);
-            };
-            img.onerror = () => { ring.classList.add('shimmer'); };
-            ring.appendChild(img);
-        }
-        div.appendChild(ring);
-
-        const count = document.createElement('div');
-        count.className = 'count';
-        count.innerText = nodeCountLabel(cluster);
-
-        const date = document.createElement('div');
-        date.className = 'date';
-        date.innerText = new Date(cluster.startTime).toDateString();
-
-        div.appendChild(count);
-        div.appendChild(date);
-
-        if (cluster.placeName) {
-            const chip = document.createElement('div');
-            chip.className = 'place-chip';
-            chip.innerText = cluster.placeName;
-            div.appendChild(chip);
-        }
-
-        if (cluster.items[0].aiTags) {
-            const tags = cluster.items[0].aiTags.split(',').slice(0, 2);
-            tags.forEach(tag => {
-                const tagEl = document.createElement('div');
-                tagEl.className = 'ai-tag';
-                tagEl.innerText = `✨ ${tag.trim()}`;
-                div.appendChild(tagEl);
-            });
-        }
-
-        ui.gallery.appendChild(div);
-        state.clusterElements.set(cluster.id, div);
-    });
-
-    state.lastPositions = positions;
-    redrawConnections(positions);
-    centerOnPositions(positions);
-    updateMapMarkers(clusters, options);
 }
 
-export function openCluster(eventId) {
-    const cluster = state.filteredClusters.find((c) => c.id === eventId);
+function buildClusterPositions(clusters) {
+    return clusters.map((cluster, index) => {
+        const pos = computeNodePosition(index, clusters.length);
+        return {
+            id: cluster.id,
+            index,
+            x: pos.x,
+            y: pos.y,
+            scale: pos.scale,
+        };
+    });
+}
+
+function getVisibleClusterRange(allPositions) {
+    if (!state.virtualizedGraphActive || !ui.viewport || allPositions.length === 0) {
+        return { start: 0, end: allPositions.length };
+    }
+
+    const scale = Math.max(state.scale, 0.12);
+    const viewportWidth = ui.viewport.clientWidth || 0;
+    const overscanWorld = VIRTUAL_OVERSCAN_PX / scale;
+    const leftBound = ((-state.offsetX) / scale) - overscanWorld;
+    const rightBound = ((viewportWidth - state.offsetX) / scale) + overscanWorld;
+
+    let start = 0;
+    while (start < allPositions.length) {
+        const pos = allPositions[start];
+        if (pos.x + GRAPH.nodeWidth >= leftBound) break;
+        start += 1;
+    }
+
+    let end = start;
+    while (end < allPositions.length) {
+        const pos = allPositions[end];
+        if (pos.x > rightBound) break;
+        end += 1;
+    }
+
+    start = Math.max(0, start - 2);
+    end = Math.min(allPositions.length, Math.max(end + 2, start + 1));
+    return { start, end };
+}
+
+function buildClusterElement(cluster, index, pos, gen) {
+    const coverItem = cluster.coverItem || (cluster.items && cluster.items[0]);
+    if (!coverItem) return null;
+
+    const div = document.createElement('div');
+    div.className = 'cluster';
+    div.setAttribute('role', 'button');
+    div.setAttribute('tabindex', '0');
+    div.setAttribute('aria-label', `${cluster.placeName || cluster.label || ''} - ${nodeCountLabel(cluster)}`);
+    div.style.left = `${pos.x}px`;
+    div.style.top = `${pos.y}px`;
+    div.style.setProperty('--node-scale', pos.scale);
+
+    const perNode = 0.55;
+    const cycleDur = Math.max(5, state.filteredClusters.length * perNode + 2);
+    div.style.setProperty('--wave-total', `${cycleDur.toFixed(2)}s`);
+    div.style.setProperty('--wave-delay', `${(index * perNode).toFixed(2)}s`);
+
+    div.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        openCluster(cluster.id);
+    });
+
+    div.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            openCluster(cluster.id);
+        }
+    });
+
+    div.addEventListener('mousedown', (e) => {
+        if (state.inDetailsView) return;
+        e.stopPropagation();
+        const target = state.lastPositions.find((entry) => entry.id === cluster.id);
+        if (!target) return;
+        state.draggedNodeId = cluster.id;
+        state.nodeDragMoved = false;
+        target.startX = target.x;
+        target.startY = target.y;
+
+        const rect = ui.viewport.getBoundingClientRect();
+        const worldX = (e.clientX - rect.left - state.offsetX) / state.scale;
+        const worldY = (e.clientY - rect.top - state.offsetY) / state.scale;
+        target.dragOffsetX = worldX - target.x;
+        target.dragOffsetY = worldY - target.y;
+        ui.viewport.classList.add('dragging');
+    });
+
+    const ring = document.createElement('div');
+    ring.className = 'img-ring';
+
+    const displayPath = getDisplayPath(coverItem);
+    const hasThumbnail = Boolean(displayPath);
+
+    if (!hasThumbnail) {
+        ring.classList.add('shimmer');
+    }
+
+    if (coverItem.type === 'video') {
+        const img = document.createElement('img');
+        if (hasThumbnail) {
+            img.src = toFileSrc(displayPath);
+        }
+        img.loading = 'lazy';
+        img.onload = () => {
+            ring.classList.remove('shimmer');
+            scheduleImageLoadConnectionsRedraw(gen);
+        };
+        img.onerror = () => { ring.classList.add('shimmer'); };
+        ring.appendChild(img);
+    } else {
+        const img = document.createElement('img');
+        if (hasThumbnail) {
+            img.src = toFileSrc(displayPath);
+        }
+        img.loading = 'lazy';
+        img.onload = () => {
+            ring.classList.remove('shimmer');
+            scheduleImageLoadConnectionsRedraw(gen);
+        };
+        img.onerror = () => { ring.classList.add('shimmer'); };
+        ring.appendChild(img);
+    }
+    div.appendChild(ring);
+
+    const count = document.createElement('div');
+    count.className = 'count';
+    count.innerText = nodeCountLabel(cluster);
+
+    const date = document.createElement('div');
+    date.className = 'date';
+    date.innerText = new Date(cluster.startTime).toDateString();
+
+    div.appendChild(count);
+    div.appendChild(date);
+
+    if (cluster.placeName) {
+        const chip = document.createElement('div');
+        chip.className = 'place-chip';
+        chip.innerText = cluster.placeName;
+        div.appendChild(chip);
+    }
+
+    if (coverItem.aiTags) {
+        const tags = coverItem.aiTags.split(',').slice(0, 2);
+        tags.forEach(tag => {
+            const tagEl = document.createElement('div');
+            tagEl.className = 'ai-tag';
+            tagEl.innerText = `* ${tag.trim()}`;
+            div.appendChild(tagEl);
+        });
+    }
+
+    return div;
+}
+
+function updateClusterElement(div, cluster, index, pos) {
+    if (!div) return;
+    div.style.left = `${pos.x}px`;
+    div.style.top = `${pos.y}px`;
+    div.style.setProperty('--node-scale', pos.scale);
+
+    const perNode = 0.55;
+    const cycleDur = Math.max(5, state.filteredClusters.length * perNode + 2);
+    div.style.setProperty('--wave-total', `${cycleDur.toFixed(2)}s`);
+    div.style.setProperty('--wave-delay', `${(index * perNode).toFixed(2)}s`);
+
+    const ariaLabel = `${cluster.placeName || cluster.label || ''} - ${nodeCountLabel(cluster)}`;
+    if (div.getAttribute('aria-label') !== ariaLabel) {
+        div.setAttribute('aria-label', ariaLabel);
+    }
+}
+
+function syncVisibleClusters(force = false) {
+    if (state.inDetailsView) return;
+    const clusters = state.filteredClusters || [];
+    const allPositions = state.fullClusterPositions || [];
+    if (!Array.isArray(clusters) || clusters.length === 0 || allPositions.length === 0) return;
+
+    const range = getVisibleClusterRange(allPositions);
+    if (!force && state.renderedClusterRange &&
+        state.renderedClusterRange.start === range.start &&
+        state.renderedClusterRange.end === range.end) {
+        return;
+    }
+
+    state.renderedClusterRange = range;
+    const fragment = document.createDocumentFragment();
+    const positions = [];
+    const gen = _renderGen;
+    const nextClusterElements = new Map();
+    const nextVisibleIds = new Set();
+
+    for (let index = range.start; index < range.end; index += 1) {
+        const cluster = clusters[index];
+        const pos = allPositions[index];
+        let div = state.clusterElements.get(cluster.id);
+        if (!div) {
+            div = buildClusterElement(cluster, index, pos, gen);
+        } else {
+            updateClusterElement(div, cluster, index, pos);
+        }
+        if (!div) continue;
+        fragment.appendChild(div);
+        nextClusterElements.set(cluster.id, div);
+        nextVisibleIds.add(cluster.id);
+        positions.push({
+            id: pos.id,
+            index,
+            x: pos.x,
+            y: pos.y,
+            scale: pos.scale,
+        });
+    }
+
+    for (const [clusterId, div] of state.clusterElements.entries()) {
+        if (nextVisibleIds.has(clusterId)) continue;
+        if (div?.parentNode === ui.gallery) {
+            div.remove();
+        }
+    }
+
+    ui.gallery.appendChild(fragment);
+    state.clusterElements = nextClusterElements;
+    state.lastPositions = positions;
+}
+
+export function renderClusters(clusters, options = {}) {
+    ++_renderGen;
+    state.filteredClusters = clusters;
+    state.fullClusterPositions = [];
+    state.renderedClusterRange = null;
+    state.virtualizedGraphActive = false;
+    setGraphTransformEnabled(true);
+    ui.gallery.innerHTML = '';
+
+    if (clusters.length === 0) {
+        renderEmptyState('No photos found. Open Settings to add folders with JPG/PNG/WEBP images.');
+        return;
+    }
+
+    computeNodePosition._cache = null;
+    computeNodePosition._cacheCount = 0;
+    computeNodePosition(0, clusters.length);
+
+    ui.gallery.style.width = `${GRAPH.width}px`;
+    ui.gallery.style.height = `${GRAPH.height}px`;
+    ui.connections.style.width = `${GRAPH.width}px`;
+    ui.connections.style.height = `${GRAPH.height}px`;
+    ui.connections.setAttribute('width', GRAPH.width);
+    ui.connections.setAttribute('height', GRAPH.height);
+    ui.connections.setAttribute('viewBox', `0 0 ${GRAPH.width} ${GRAPH.height}`);
+    _lastLayoutViewportWidth = ui.viewport?.clientWidth || 0;
+    _lastLayoutViewportHeight = ui.viewport?.clientHeight || 0;
+
+
+    ensureConnectionGradient();
+
+    state.fullClusterPositions = buildClusterPositions(clusters);
+    state.virtualizedGraphActive = shouldVirtualizeClusters(clusters);
+    state.clusterElements.clear();
+    state.lastPositions = [];
+
+    if (state.virtualizedGraphActive) {
+        centerOnPositions(state.fullClusterPositions);
+        syncVisibleClusters(true);
+        scheduleConnectionsRedraw(state.lastPositions);
+    } else {
+        syncVisibleClusters(true);
+        centerOnPositions(state.fullClusterPositions);
+    }
+
+    if (state.showMap) {
+        updateMapMarkers(clusters, options);
+    }
+}
+
+export function relayoutClustersForViewport() {
+    if (state.inDetailsView || state.showMap) return;
+    const clusters = state.filteredClusters || [];
+    if (!Array.isArray(clusters) || clusters.length === 0) return;
+
+    const nextWidth = ui.viewport?.clientWidth || 0;
+    const nextHeight = ui.viewport?.clientHeight || 0;
+    const widthDelta = Math.abs(nextWidth - _lastLayoutViewportWidth);
+    const heightDelta = Math.abs(nextHeight - _lastLayoutViewportHeight);
+
+    if (widthDelta < 24 && heightDelta < 24) {
+        return;
+    }
+
+    renderClusters(clusters);
+}
+export async function openCluster(clusterOrId) {
+    if (_visibleClusterSyncRaf) {
+        cancelAnimationFrame(_visibleClusterSyncRaf);
+        _visibleClusterSyncRaf = 0;
+    }
+    if (_connectionRedrawRaf) {
+        cancelAnimationFrame(_connectionRedrawRaf);
+        _connectionRedrawRaf = 0;
+    }
+    const eventId = typeof clusterOrId === 'string' ? clusterOrId : clusterOrId?.id;
+    let cluster = typeof clusterOrId === 'string'
+        ? state.filteredClusters.find((c) => c.id === eventId)
+        : clusterOrId;
     if (!cluster) return;
+
+    if (!cluster.hasFullItems) {
+        try {
+            const items = await window.api.invoke('get-cluster-items', { clusterId: eventId });
+            const upgradedCluster = { ...cluster, items, itemCount: items.length, hasFullItems: true };
+            state.allClusters = state.allClusters.map((entry) => entry.id === eventId ? upgradedCluster : entry);
+            state.filteredClusters = state.filteredClusters.map((entry) => entry.id === eventId ? upgradedCluster : entry);
+            cluster = upgradedCluster;
+        } catch (error) {
+            console.error('Failed to load cluster items:', error);
+            return;
+        }
+    }
 
     state.inDetailsView = true;
     setGraphTransformEnabled(false);
@@ -481,7 +710,7 @@ export function openCluster(eventId) {
     back.style.width = 'fit-content';
     back.style.cursor = 'pointer';
     back.setAttribute('data-back-action', backDest);
-    back.innerHTML = `<i>←</i> <span>${backLabel}</span>`;
+    back.innerHTML = `<i>&larr;</i> <span>${backLabel}</span>`;
     back.onclick = (e) => {
         e.stopPropagation();
         handleBackNavigation();
@@ -490,13 +719,13 @@ export function openCluster(eventId) {
     wrapper.appendChild(header);
 
     const title = document.createElement('h2');
-    title.innerText = formatDate(cluster.startTime);
+    title.innerText = cluster.title || formatDate(cluster.startTime);
     wrapper.appendChild(title);
 
-    if (cluster.placeName) {
+    if (cluster.placeName && cluster.placeName !== cluster.title) {
         const chip = document.createElement('div');
         chip.className = 'place-chip';
-        chip.innerText = `● ${cluster.placeName}`;
+        chip.innerText = `• ${cluster.placeName}`;
         wrapper.appendChild(chip);
     }
 
@@ -507,7 +736,7 @@ export function openCluster(eventId) {
         tags.forEach(tag => {
             const tagEl = document.createElement('div');
             tagEl.className = 'ai-tag';
-            tagEl.innerText = `✨ ${tag.trim()}`;
+            tagEl.innerText = `* ${tag.trim()}`;
             aiRow.appendChild(tagEl);
         });
         wrapper.appendChild(aiRow);
@@ -515,22 +744,31 @@ export function openCluster(eventId) {
 
     const grid = document.createElement('div');
     grid.className = 'grid';
-    cluster.items.forEach((item) => {
-        if (item.type === 'video') {
-            const video = document.createElement('video');
-            video.src = toFileSrc(item.path);
-            video.controls = true;
-            video.preload = 'metadata';
-            grid.appendChild(video);
-        } else {
+    const imageItems = cluster.items.filter(it => it.type !== 'video');
+    const imageIndexByPath = new Map(imageItems.map((item, index) => [item.path, index]));
+    renderGridIncrementally({
+        items: cluster.items,
+        grid,
+        batchSize: 40,
+        createNode: (item) => {
+            if (item.type === 'video') {
+                const video = document.createElement('video');
+                video.src = toFileSrc(item.path);
+                if (item.thumbnailPath) {
+                    video.poster = toFileSrc(item.thumbnailPath);
+                }
+                video.controls = true;
+                video.preload = 'none';
+                return video;
+            }
+
             const img = document.createElement('img');
-            img.src = toFileSrc(getFullSizePath(item));
+            img.src = toFileSrc(getDisplayPath(item));
             img.loading = 'lazy';
             img.setAttribute('tabindex', '0');
             img.setAttribute('role', 'button');
             img.alt = item.tags || item.name || 'Photo';
-            const imageItems = cluster.items.filter(it => it.type !== 'video');
-            const imgIndex = imageItems.indexOf(item);
+            const imgIndex = imageIndexByPath.get(item.path) ?? 0;
             img.onclick = () => showLightbox(imageItems, imgIndex);
             img.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
@@ -538,8 +776,8 @@ export function openCluster(eventId) {
                     showLightbox(imageItems, imgIndex);
                 }
             });
-            grid.appendChild(img);
-        }
+            return img;
+        },
     });
     wrapper.appendChild(grid);
 
@@ -558,7 +796,7 @@ export function openCluster(eventId) {
             item.className = 'nav-item';
             item.setAttribute('role', 'button');
             item.setAttribute('tabindex', '0');
-            item.innerText = `${new Date(rel.startTime).toDateString()} (${rel.items.length})`;
+            item.innerText = `${new Date(rel.startTime).toDateString()} (${nodeCountLabel(rel)})`;
             const activate = (e) => {
                 e.stopPropagation();
                 openCluster(rel.id);
@@ -590,7 +828,7 @@ export function updateNavActiveState() {
         ui.navFamilyTree.classList.add('active');
     } else if (state.showMap || (state.inDetailsView && state.openedFromMap)) {
         ui.navMap.classList.add('active');
-    } else if ((state.groupBy === 'person' && state.inDetailsView) || state.openedFromPeople) {
+    } else if (state.peopleViewActive || state.openedFromPeople) {
         ui.navPeople.classList.add('active');
     } else {
         ui.navTimeline.classList.add('active');
@@ -604,16 +842,22 @@ export function updateNavActiveState() {
 }
 
 export async function focusPersonCluster(personId, switchGroupByFn, { source, beforeFn } = {}) {
+    void switchGroupByFn;
     if (typeof beforeFn === 'function') beforeFn();
     state.inDetailsView = false;
     setMapVisibility(false, { skipRender: true });
-    await switchGroupByFn('person');
-    state.personFilter = personId;
-    const { applyFilters } = await import('./search.js');
-    applyFilters();
+    const cluster = await window.api.invoke('get-person-cluster', { personId });
+    if (!cluster) {
+        console.warn('No person cluster found for person:', personId);
+        return;
+    }
+    state.personFilter = null;
+    state.peopleViewActive = source === 'people';
+    state.openedFromTree = false;
+    state.openedFromPeople = false;
     if (source === 'tree') state.openedFromTree = true;
     else if (source === 'people') state.openedFromPeople = true;
-    openCluster(`person-${personId}`);
+    await openCluster(cluster);
 }
 
 export async function handleBackNavigation() {

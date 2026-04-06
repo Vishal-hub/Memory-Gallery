@@ -1,5 +1,5 @@
 import { state, ui } from './state.js';
-import { toFileSrc, showIndexingHint } from './utils.js';
+import { toFileSrc, showIndexingHint, renderGridIncrementally } from './utils.js';
 import { setGraphTransformEnabled, updateNavActiveState, focusPersonCluster } from './graph.js';
 import { setMapVisibility } from './map.js';
 
@@ -56,9 +56,9 @@ function renderPeopleGrid(people, wrapper, switchGroupByFn) {
     if (people.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'empty-state-view';
-        empty.style.height = '40vh'; // Smaller height since it's below a header
+        empty.style.height = '40vh';
         empty.style.paddingTop = '0';
-        
+
         const icon = document.createElement('div');
         icon.className = 'empty-icon';
         icon.innerHTML = `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -66,15 +66,15 @@ function renderPeopleGrid(people, wrapper, switchGroupByFn) {
             <circle cx="9" cy="7" r="4"></circle>
             <line x1="23" y1="11" x2="17" y2="11"></line>
         </svg>`;
-        
+
         const title = document.createElement('h2');
         title.innerText = 'No identities discovered';
-        
+
         const text = document.createElement('p');
-        text.innerText = state.indexingComplete.faces 
+        text.innerText = state.indexingComplete.faces
             ? 'We couldn\'t find any clear faces in your photos. Try adding more folders or checking your settings.'
             : 'Face recognition is still processing your library. New identities will appear here automatically.';
-        
+
         empty.appendChild(icon);
         empty.appendChild(title);
         empty.appendChild(text);
@@ -85,63 +85,68 @@ function renderPeopleGrid(people, wrapper, switchGroupByFn) {
     const grid = document.createElement('div');
     grid.className = 'grid';
 
-    people.forEach(person => {
-        const item = document.createElement('div');
-        item.className = 'person-card';
+    renderGridIncrementally({
+        items: people,
+        grid,
+        batchSize: 36,
+        createNode: (person) => {
+            const item = document.createElement('div');
+            item.className = 'person-card';
 
-        const img = document.createElement('img');
-        img.src = toFileSrc(person.thumbnail_path);
+            const img = document.createElement('img');
+            img.src = toFileSrc(person.thumbnail_path);
 
-        const name = document.createElement('div');
-        name.className = 'person-name';
-        name.innerText = person.name;
-        name.style.cursor = 'pointer';
-        name.title = 'Click to rename';
+            const name = document.createElement('div');
+            name.className = 'person-name';
+            name.innerText = person.name;
+            name.style.cursor = 'pointer';
+            name.title = 'Click to rename';
 
-        const stats = document.createElement('div');
-        stats.className = 'person-stats';
-        stats.innerText = `${person.appearance_count || 0} photo${(person.appearance_count || 0) !== 1 ? 's' : ''}`;
+            const stats = document.createElement('div');
+            stats.className = 'person-stats';
+            stats.innerText = `${person.appearance_count || 0} photo${(person.appearance_count || 0) !== 1 ? 's' : ''}`;
 
-        const openRename = async (e) => {
-            e.stopPropagation();
-            ui.renameInput.value = person.name;
-            ui.renameModal.classList.remove('hidden');
-            ui.renameInput.focus();
+            const openRename = async (e) => {
+                e.stopPropagation();
+                ui.renameInput.value = person.name;
+                ui.renameModal.classList.remove('hidden');
+                ui.renameInput.focus();
 
-            ui.saveRenameBtn.onclick = async () => {
-                const newName = ui.renameInput.value.trim();
-                if (newName && newName !== person.name) {
-                    await window.api.invoke('rename-person', { id: person.id, name: newName });
-                    ui.renameModal.classList.add('hidden');
-                    ui.navPeople.click();
-                } else {
-                    ui.renameModal.classList.add('hidden');
-                }
+                ui.saveRenameBtn.onclick = async () => {
+                    const newName = ui.renameInput.value.trim();
+                    if (newName && newName !== person.name) {
+                        await window.api.invoke('rename-person', { id: person.id, name: newName });
+                        ui.renameModal.classList.add('hidden');
+                        ui.navPeople.click();
+                    } else {
+                        ui.renameModal.classList.add('hidden');
+                    }
+                };
+
+                ui.closeRenameBtn.onclick = () => ui.renameModal.classList.add('hidden');
+                ui.renameInput.onkeydown = (ev) => {
+                    if (ev.key === 'Enter') ui.saveRenameBtn.click();
+                    if (ev.key === 'Escape') ui.renameModal.classList.add('hidden');
+                };
             };
 
-            ui.closeRenameBtn.onclick = () => ui.renameModal.classList.add('hidden');
-            ui.renameInput.onkeydown = (ev) => {
-                if (ev.key === 'Enter') ui.saveRenameBtn.click();
-                if (ev.key === 'Escape') ui.renameModal.classList.add('hidden');
+            name.onclick = openRename;
+
+            const rename = document.createElement('button');
+            rename.className = 'rename-btn';
+            rename.innerText = 'Rename';
+            rename.onclick = openRename;
+
+            item.onclick = async () => {
+                await focusClusterFromPeople(person.id, switchGroupByFn);
             };
-        };
 
-        name.onclick = openRename;
-
-        const rename = document.createElement('button');
-        rename.className = 'rename-btn';
-        rename.innerText = '✎';
-        rename.onclick = openRename;
-
-        item.onclick = async () => {
-            await focusClusterFromPeople(person.id, switchGroupByFn);
-        };
-
-        item.appendChild(img);
-        item.appendChild(name);
-        item.appendChild(stats);
-        item.appendChild(rename);
-        grid.appendChild(item);
+            item.appendChild(img);
+            item.appendChild(name);
+            item.appendChild(stats);
+            item.appendChild(rename);
+            return item;
+        },
     });
 
     wrapper.appendChild(grid);
@@ -149,8 +154,13 @@ function renderPeopleGrid(people, wrapper, switchGroupByFn) {
 
 export async function openPeopleGallery(switchGroupByFn) {
     const token = state.navigationToken;
-    await switchGroupByFn('person');
-    if (token !== state.navigationToken) return;
+    void switchGroupByFn;
+    state.peopleViewActive = true;
+    state.treeViewActive = false;
+    state.personFilter = null;
+    state.openedFromPeople = false;
+    state.openedFromTree = false;
+    state.openedFromMap = false;
 
     state.inDetailsView = true;
     setMapVisibility(false, { skipRender: true });
@@ -180,10 +190,11 @@ export async function openPeopleGallery(switchGroupByFn) {
     wrapper.appendChild(header);
 
     const people = await window.api.invoke('get-people');
+    if (token !== state.navigationToken) return;
     state.people = people;
 
     if (!state.indexingComplete.faces) {
-        showIndexingHint('Face recognition in progress — more people will appear soon');
+        showIndexingHint('Face recognition in progress - more people will appear soon');
     }
 
     showPeopleToolbar();
@@ -200,6 +211,16 @@ export async function openPeopleGallery(switchGroupByFn) {
 export function resortPeopleGallery(switchGroupByFn) {
     const wrapper = document.getElementById('peopleWrapper');
     if (!wrapper || !state.people.length) return;
+    const sorted = sortPeople(state.people, state.peopleSortBy);
+    renderPeopleGrid(sorted, wrapper, switchGroupByFn);
+}
+
+export async function refreshPeopleGallery(switchGroupByFn) {
+    const wrapper = document.getElementById('peopleWrapper');
+    if (!wrapper) return;
+    const people = await window.api.invoke('get-people');
+    state.people = Array.isArray(people) ? people : [];
+    updatePeopleStats(state.people);
     const sorted = sortPeople(state.people, state.peopleSortBy);
     renderPeopleGrid(sorted, wrapper, switchGroupByFn);
 }

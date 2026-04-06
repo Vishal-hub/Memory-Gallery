@@ -4,7 +4,9 @@ const { createDb } = require('../../lib/indexer');
 const { createMainWindow } = require('./window');
 const { registerIpcHandlers } = require('./ipc');
 const { createLibraryRefreshManager } = require('./library-refresh');
-const { warmVisionModels, warmFaceModels } = require('../../lib/indexer/model-registry');
+const { createEmbeddingWorkerClient } = require('./embedding-worker-client');
+const { createVisionFaceWorkerClient } = require('./vision-face-worker-client');
+const { createMediaAssetWorkerClient } = require('./media-asset-worker-client');
 
 let latestRunStats = null;
 
@@ -27,9 +29,15 @@ function startApp() {
   app.whenReady().then(() => {
     const dbPath = path.join(app.getPath('userData'), 'memory-index.sqlite');
     const db = createDb(dbPath);
+    const embeddingWorker = createEmbeddingWorkerClient();
+    const visionFaceWorker = createVisionFaceWorkerClient();
+    const mediaAssetWorker = createMediaAssetWorkerClient();
     const refreshManager = createLibraryRefreshManager({
       app,
       db,
+      embeddingWorker,
+      visionFaceWorker,
+      mediaAssetWorker,
       setLatestRunStats: (stats) => {
         latestRunStats = stats;
       },
@@ -46,22 +54,32 @@ function startApp() {
     });
 
     createMainWindow();
-    setTimeout(() => {
-      warmVisionModels().catch((error) => {
+    setTimeout(async () => {
+      try {
+        if (typeof visionFaceWorker.warmVisualModels === 'function') {
+          await visionFaceWorker.warmVisualModels();
+        } else {
+          await visionFaceWorker.warmModels();
+        }
+      } catch (error) {
         console.error('[Models] Vision warmup failed:', error);
         broadcastToAll('model-load-error', {
           message: error.message || 'AI models failed to load',
           hint: 'AI features (tagging, search, face recognition) are unavailable. Check your internet connection and restart the app.',
         });
-      });
-      warmFaceModels().catch((error) => {
-        console.error('[Models] Face model warmup failed:', error);
+      }
+
+      try {
+        await embeddingWorker.warmEmbeddingModels();
+      } catch (error) {
+        console.error('[Models] Embedding worker warmup failed:', error);
         broadcastToAll('model-load-error', {
-          message: error.message || 'Face recognition models failed to load',
-          hint: 'Face recognition will fall back to basic detection. Check your internet connection and restart the app.',
+          message: error.message || 'Search indexing model failed to load',
+          hint: 'Visual search will warm up later. Basic browsing still works.',
         });
-      });
-    }, 300);
+      }
+
+    }, 5000);
     refreshManager.startWatching();
     setTimeout(() => {
       refreshManager.checkForStartupChanges().catch((error) => {
@@ -71,6 +89,9 @@ function startApp() {
 
     app.on('before-quit', () => {
       refreshManager.dispose();
+      embeddingWorker.dispose();
+      visionFaceWorker.dispose();
+      mediaAssetWorker.dispose();
     });
   });
 }

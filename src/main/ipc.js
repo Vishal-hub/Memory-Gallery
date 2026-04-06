@@ -1,18 +1,37 @@
 const { ipcMain } = require('electron');
 const fs = require('fs');
 const path = require('path');
-const { runIndexing, getEventsForRenderer, getIndexStats } = require('../../lib/indexer');
+const { runIndexing, getEventsForRenderer, getEventSummaryPage, getClusterItems, getPersonCluster, getIndexStats } = require('../../lib/indexer');
 const { searchSemanticVectors } = require('../../lib/indexer/vector-search');
 
 function registerIpcHandlers({ app, db, refreshManager, getLatestRunStats, setLatestRunStats }) {
+  async function loadClustersForGroup(config = {}) {
+    const groupBy = config.groupBy || 'date';
+    if (config.fullItems || (groupBy !== 'date' && groupBy !== 'location' && groupBy !== 'tag')) {
+      return getEventsForRenderer(db, groupBy);
+    }
+
+    const clusters = [];
+    let cursor = 0;
+    while (true) {
+      const page = getEventSummaryPage(db, { groupBy, cursor, limit: 200 });
+      clusters.push(...page.clusters);
+      if (!page.hasMore) break;
+      cursor = page.nextCursor;
+    }
+    return clusters;
+  }
+
   ipcMain.handle('read-images', async (e, config = {}) => {
-    const clusters = getEventsForRenderer(db, config.groupBy || 'date');
+    const clusters = config.skipClusters ? [] : await loadClustersForGroup(config);
     const stats = getIndexStats(db);
     return {
       clusters,
       indexDebug: {
         ...stats,
         latestRun: getLatestRunStats(),
+        latestBenchmark: refreshManager.getLatestBenchmark?.() || null,
+        benchmarkHistory: refreshManager.getBenchmarkHistory?.() || [],
         libraryDirty: refreshManager.isDirty(),
       },
     };
@@ -21,20 +40,56 @@ function registerIpcHandlers({ app, db, refreshManager, getLatestRunStats, setLa
   ipcMain.handle('refresh-library', async (e, config = {}) => {
     const latestRun = await refreshManager.requestRefresh('manual');
     setLatestRunStats(latestRun);
-    const clusters = getEventsForRenderer(db, config.groupBy || 'date');
+    const clusters = config.skipClusters ? [] : await loadClustersForGroup(config);
     const stats = getIndexStats(db);
     return {
       clusters,
       indexDebug: {
         ...stats,
         latestRun: getLatestRunStats(),
+        latestBenchmark: refreshManager.getLatestBenchmark?.() || null,
+        benchmarkHistory: refreshManager.getBenchmarkHistory?.() || [],
         libraryDirty: refreshManager.isDirty(),
       },
     };
   });
 
   ipcMain.handle('get-events', async (e, config = {}) => {
-    return getEventsForRenderer(db, config.groupBy || 'date');
+    return loadClustersForGroup(config);
+  });
+
+  ipcMain.handle('get-cluster-page', async (e, config = {}) => {
+    return getEventSummaryPage(db, config);
+  });
+
+  ipcMain.handle('get-cluster-items', async (e, config = {}) => {
+    return getClusterItems(db, config.clusterId);
+  });
+
+  ipcMain.handle('get-person-cluster', async (e, config = {}) => {
+    return getPersonCluster(db, config.personId);
+  });
+
+  ipcMain.handle('get-library-summary', async () => {
+    const stats = getIndexStats(db);
+    return {
+      ...stats,
+      latestRun: getLatestRunStats(),
+      latestBenchmark: refreshManager.getLatestBenchmark?.() || null,
+      benchmarkHistory: refreshManager.getBenchmarkHistory?.() || [],
+      libraryDirty: refreshManager.isDirty(),
+    };
+  });
+
+  ipcMain.handle('get-index-progress', async () => {
+    const stats = getIndexStats(db);
+    return {
+      latestRun: getLatestRunStats(),
+      latestBenchmark: refreshManager.getLatestBenchmark?.() || null,
+      benchmarkHistory: refreshManager.getBenchmarkHistory?.() || [],
+      libraryDirty: refreshManager.isDirty(),
+      totals: stats,
+    };
   });
 
   ipcMain.handle('search-semantic', async (e, text) => {
@@ -46,6 +101,8 @@ function registerIpcHandlers({ app, db, refreshManager, getLatestRunStats, setLa
     return {
       ...stats,
       latestRun: getLatestRunStats(),
+      latestBenchmark: refreshManager.getLatestBenchmark?.() || null,
+      benchmarkHistory: refreshManager.getBenchmarkHistory?.() || [],
       libraryDirty: refreshManager.isDirty(),
     };
   });

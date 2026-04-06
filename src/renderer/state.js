@@ -30,8 +30,11 @@ export const state = {
     groupBy: 'date',
     semanticMatches: [],
     inDetailsView: false,
+    fullClusterPositions: [],
     lastPositions: [],
     clusterElements: new Map(),
+    virtualizedGraphActive: false,
+    renderedClusterRange: null,
     draggedNodeId: null,
     nodeDragMoved: false,
     map: null,
@@ -42,6 +45,7 @@ export const state = {
     currentMapStyle: 'voyager',
     mapSearchLocked: false,
     people: [],
+    peopleViewActive: false,
     personFilter: null,
     peopleSortBy: 'photos',
     libraryDirty: false,
@@ -59,6 +63,8 @@ export const state = {
         faces: false,
         vectors: false,
     },
+    clusterDataModeByGroup: {},
+    clusterPageStateByGroup: {},
 };
 
 export const ui = {

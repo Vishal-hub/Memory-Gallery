@@ -20,9 +20,10 @@ export function formatDate(timestamp) {
 
 export function nodeCountLabel(cluster) {
     const items = cluster.items || [];
+    const totalCount = Number.isFinite(cluster.itemCount) ? cluster.itemCount : items.length;
     const videos = items.filter((item) => item.type === 'video').length;
-    const images = items.length - videos;
-    if (videos > 0 && images > 0) return `${items.length} items (${images} photos, ${videos} videos)`;
+    const images = Math.max(0, totalCount - videos);
+    if (videos > 0 && images > 0) return `${totalCount} items (${images} photos, ${videos} videos)`;
     if (videos > 0) return `${videos} video${videos > 1 ? 's' : ''}`;
     return `${images} photo${images > 1 ? 's' : ''}`;
 }
@@ -74,4 +75,26 @@ export function renderEmptyState(message) {
     wrapper.appendChild(text);
     
     ui.gallery.appendChild(wrapper);
+}
+
+export function renderGridIncrementally({ items, grid, createNode, batchSize = 48 }) {
+    if (!grid || !Array.isArray(items) || typeof createNode !== 'function') return;
+
+    let index = 0;
+
+    function renderBatch() {
+        const fragment = document.createDocumentFragment();
+        const end = Math.min(items.length, index + batchSize);
+        for (; index < end; index += 1) {
+            const node = createNode(items[index], index);
+            if (node) fragment.appendChild(node);
+        }
+        grid.appendChild(fragment);
+
+        if (index < items.length) {
+            requestAnimationFrame(renderBatch);
+        }
+    }
+
+    renderBatch();
 }

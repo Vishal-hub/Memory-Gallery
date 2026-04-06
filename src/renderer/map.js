@@ -114,7 +114,7 @@ function updateMapModeMeta(clusters = state.filteredClusters) {
     const placeCount = clusters.filter((cluster) =>
         typeof cluster.centerLat === 'number' && typeof cluster.centerLon === 'number'
     ).length;
-    const itemCount = clusters.reduce((sum, cluster) => sum + (cluster.items?.length || 0), 0);
+    const itemCount = clusters.reduce((sum, cluster) => sum + (cluster.itemCount || cluster.items?.length || 0), 0);
     ui.mapModeMeta.innerText = `${placeCount} place${placeCount === 1 ? '' : 's'} · ${itemCount} item${itemCount === 1 ? '' : 's'}`;
 }
 
@@ -188,7 +188,7 @@ function buildMarkers(clusters) {
         if (!pos) return;
         const { lat, lon } = pos;
         const formattedDate = new Date(cluster.startTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-        const itemCount = cluster.items.length;
+        const itemCount = cluster.itemCount || cluster.items.length;
         const popupHtml = `
         <div class="map-popup" data-cluster-id="${cluster.id}">
           <div class="map-popup-place">${cluster.placeName || 'Unknown Place'}</div>

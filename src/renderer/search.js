@@ -1,7 +1,95 @@
 import { state, ui } from './state.js';
-import { toFileSrc, renderEmptyState, getDisplayPath, showIndexingHint } from './utils.js';
+import { toFileSrc, renderEmptyState, getDisplayPath, showIndexingHint, renderGridIncrementally } from './utils.js';
 import { renderClusters, setGraphTransformEnabled, handleBackNavigation } from './graph.js';
 import { showLightbox } from './lightbox.js';
+
+let _hydrationRunId = 0;
+const _clusterHydrationPromises = new Map();
+let _lastTimelineRenderSignature = '';
+let _lastSearchRenderSignature = '';
+let _lastEmptyStateSignature = '';
+
+function buildClusterRenderSignature(clusters = []) {
+    return (Array.isArray(clusters) ? clusters : []).map((cluster) => {
+        const cover = cluster?.coverItem || cluster?.items?.[0] || {};
+        return [
+            cluster?.id || '',
+            cluster?.items?.length || 0,
+            cluster?.startTime || 0,
+            cluster?.endTime || 0,
+            cluster?.placeName || '',
+            cover?.path || '',
+            cover?.thumbnailPath || '',
+            cover?.aiTags || '',
+            cover?.personClass || '',
+        ].join('|');
+    }).join('||');
+}
+
+function buildItemRenderSignature(items = []) {
+    return (Array.isArray(items) ? items : []).map((item) => [
+        item?.path || item?.id || '',
+        item?.thumbnailPath || '',
+        item?.aiTags || '',
+        item?.personClass || '',
+    ].join('|')).join('||');
+}
+
+function isSummaryBackedGroup(groupBy) {
+    return groupBy === 'date' || groupBy === 'location' || groupBy === 'tag';
+}
+
+function replaceClusterItems(clusterId, items) {
+    const upgrade = (cluster) => cluster.id === clusterId
+        ? { ...cluster, items, itemCount: items.length, hasFullItems: true }
+        : cluster;
+    state.allClusters = state.allClusters.map(upgrade);
+    state.filteredClusters = state.filteredClusters.map(upgrade);
+}
+
+async function hydrateClusterItems(clusterId) {
+    if (!clusterId) return [];
+    if (_clusterHydrationPromises.has(clusterId)) {
+        return _clusterHydrationPromises.get(clusterId);
+    }
+    const promise = window.api.invoke('get-cluster-items', { clusterId })
+        .then((items) => {
+            const nextItems = Array.isArray(items) ? items : [];
+            replaceClusterItems(clusterId, nextItems);
+            return nextItems;
+        })
+        .finally(() => {
+            _clusterHydrationPromises.delete(clusterId);
+        });
+    _clusterHydrationPromises.set(clusterId, promise);
+    return promise;
+}
+
+export async function progressivelyHydrateClusters(options = {}) {
+    if (state.clusterDataModeByGroup[state.groupBy] === 'full') return;
+    if (!isSummaryBackedGroup(state.groupBy)) return;
+
+    const { visibleOnly = false, onBatch = null, batchSize = 6 } = options;
+    const runId = ++_hydrationRunId;
+    const sliderVal = ui.slider ? parseInt(ui.slider.value, 10) : 100;
+    const visibleCount = Math.ceil((sliderVal / 100) * state.allClusters.length);
+    const sourceClusters = visibleOnly ? state.allClusters.slice(0, visibleCount) : state.allClusters;
+    const targets = sourceClusters.filter((cluster) => !cluster.hasFullItems);
+
+    for (let index = 0; index < targets.length; index += batchSize) {
+        if (runId !== _hydrationRunId) return;
+        const batch = targets.slice(index, index + batchSize);
+        await Promise.all(batch.map((cluster) => hydrateClusterItems(cluster.id)));
+        if (runId !== _hydrationRunId) return;
+        if (typeof onBatch === 'function') {
+            onBatch();
+        }
+    }
+
+    if (!state.allClusters.some((cluster) => !cluster.hasFullItems)) {
+        state.clusterDataModeByGroup[state.groupBy] = 'full';
+    }
+}
 
 export function updateFilterUI() {
     ui.filterPortraitBtn.classList.toggle('active', state.faceFilter === 'portrait');
@@ -9,6 +97,7 @@ export function updateFilterUI() {
 }
 
 export function renderSearchResults(items) {
+    _lastTimelineRenderSignature = '';
     state.inDetailsView = true;
     setGraphTransformEnabled(false);
     ui.viewport.style.overflow = 'auto';
@@ -41,26 +130,36 @@ export function renderSearchResults(items) {
     grid.className = 'grid';
 
     const imageItems = items.filter(it => it.type !== 'video');
+    const imageIndexByPath = new Map(imageItems.map((item, index) => [item.path, index]));
+    renderGridIncrementally({
+        items,
+        grid,
+        batchSize: 40,
+        createNode: (item) => {
+            if (item.type === 'video') {
+                const video = document.createElement('video');
+                video.src = toFileSrc(item.path);
+                if (item.thumbnailPath) {
+                    video.poster = toFileSrc(item.thumbnailPath);
+                }
+                video.controls = true;
+                video.preload = 'none';
+                return video;
+            }
 
-    items.forEach((item) => {
-        if (item.type === 'video') {
-            const video = document.createElement('video');
-            video.src = toFileSrc(item.path);
-            video.controls = true;
-            video.preload = 'metadata';
-            grid.appendChild(video);
-        } else {
             const img = document.createElement('img');
             img.src = toFileSrc(getDisplayPath(item));
             img.loading = 'lazy';
-            const imgIndex = imageItems.indexOf(item);
+            const imgIndex = imageIndexByPath.get(item.path) ?? 0;
             img.onclick = () => showLightbox(imageItems, imgIndex);
-            grid.appendChild(img);
-        }
+            return img;
+        },
     });
 
     wrapper.appendChild(grid);
     ui.gallery.appendChild(wrapper);
+    _lastSearchRenderSignature = buildItemRenderSignature(items);
+    _lastEmptyStateSignature = '';
 }
 
 export function applyFilters() {
@@ -121,10 +220,19 @@ export function applyFilters() {
             });
 
             ui.timeLabel.innerText = `${uniqueItems.length} matching items (${(state.semanticMatches || []).length} semantic)`;
-            renderSearchResults(uniqueItems);
+            const nextSearchSignature = buildItemRenderSignature(uniqueItems);
+            if (nextSearchSignature !== _lastSearchRenderSignature) {
+                renderSearchResults(uniqueItems);
+            }
         } else {
             ui.timeLabel.innerText = 'No matches found';
-            renderEmptyState('No matches found.');
+            const emptySignature = `search-empty|${state.searchQuery}`;
+            if (_lastEmptyStateSignature !== emptySignature) {
+                renderEmptyState('No matches found.');
+                _lastEmptyStateSignature = emptySignature;
+                _lastSearchRenderSignature = '';
+                _lastTimelineRenderSignature = '';
+            }
         }
         return;
     }
@@ -132,6 +240,7 @@ export function applyFilters() {
     const timelineVal = ui.slider ? parseInt(ui.slider.value, 10) : 100;
     const count = Math.ceil((timelineVal / 100) * baseClusters.length);
     let filtered = baseClusters.slice(0, count);
+    state.filteredClusters = filtered;
 
     if (filtered.length > 0) {
         if (state.groupBy === 'date') {
@@ -144,17 +253,40 @@ export function applyFilters() {
     } else {
         ui.timeLabel.innerText = 'No clusters available';
         if (state.allClusters && state.allClusters.length > 0) {
-            renderEmptyState('No memories found in the selected time range. Move the slider to see more.');
+            const emptySignature = `timeline-empty|${state.groupBy}|${timelineVal}|${state.faceFilter || ''}|${state.personFilter || ''}`;
+            if (_lastEmptyStateSignature !== emptySignature) {
+                renderEmptyState('No memories found in the selected time range. Move the slider to see more.');
+                _lastEmptyStateSignature = emptySignature;
+                _lastTimelineRenderSignature = '';
+                _lastSearchRenderSignature = '';
+            }
             return;
         }
     }
 
     const isSearching = state.showMap && document.activeElement === ui.searchInput;
+    const nextTimelineSignature = buildClusterRenderSignature(filtered);
+    if (_lastTimelineRenderSignature === nextTimelineSignature && !state.inDetailsView) {
+        return;
+    }
+    _lastTimelineRenderSignature = nextTimelineSignature;
+    _lastSearchRenderSignature = '';
+    _lastEmptyStateSignature = '';
     renderClusters(filtered, { skipFitMap: isSearching });
 }
 
 export function bindSearchListeners() {
-    ui.filterPortraitBtn.addEventListener('click', () => {
+    ui.filterPortraitBtn.addEventListener('click', async () => {
+        if (state.clusterDataModeByGroup[state.groupBy] !== 'full') {
+            await progressivelyHydrateClusters({
+                visibleOnly: true,
+                onBatch: () => {
+                    if (state.faceFilter === 'portrait') {
+                        applyFilters();
+                    }
+                },
+            });
+        }
         state.faceFilter = state.faceFilter === 'portrait' ? null : 'portrait';
         updateFilterUI();
         if (state.faceFilter && (!state.indexingComplete.visual || !state.indexingComplete.faces)) {
@@ -163,7 +295,17 @@ export function bindSearchListeners() {
         applyFilters();
     });
 
-    ui.filterGroupBtn.addEventListener('click', () => {
+    ui.filterGroupBtn.addEventListener('click', async () => {
+        if (state.clusterDataModeByGroup[state.groupBy] !== 'full') {
+            await progressivelyHydrateClusters({
+                visibleOnly: true,
+                onBatch: () => {
+                    if (state.faceFilter === 'group') {
+                        applyFilters();
+                    }
+                },
+            });
+        }
         state.faceFilter = state.faceFilter === 'group' ? null : 'group';
         updateFilterUI();
         if (state.faceFilter && (!state.indexingComplete.visual || !state.indexingComplete.faces)) {
