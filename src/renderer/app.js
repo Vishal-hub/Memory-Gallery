@@ -1361,7 +1361,7 @@ function bindInteractions() {
   // Recenter button
   if (ui.floatingRecenterBtn) {
     ui.floatingRecenterBtn.addEventListener('click', () => {
-      centerOnPositions(state.lastPositions);
+      centerOnPositions(state.fullClusterPositions || state.lastPositions);
       if (ui.floatingRecenterBtn) {
         ui.floatingRecenterBtn.classList.add('hidden');
       }
@@ -1403,6 +1403,8 @@ function bindInteractions() {
     hidePeopleToolbar();
     closeFamilyTree();
     if (ui.timelineWrap) ui.timelineWrap.classList.remove('hidden');
+    if (ui.groupByWrap) ui.groupByWrap.classList.remove('hidden');
+    if (ui.uiFiltersWrap) ui.uiFiltersWrap.classList.remove('hidden');
     resetViewportContext();
     setMapVisibility(false, { skipRender: true });
     if (canRestoreTimelineFromCache()) {
@@ -1459,6 +1461,8 @@ function bindInteractions() {
     hidePeopleToolbar();
     closeFamilyTree();
     if (ui.timelineWrap) ui.timelineWrap.classList.remove('hidden');
+    if (ui.groupByWrap) ui.groupByWrap.classList.remove('hidden');
+    if (ui.uiFiltersWrap) ui.uiFiltersWrap.classList.remove('hidden');
     const willShow = !state.showMap;
     if (willShow) {
       resetViewportContext();

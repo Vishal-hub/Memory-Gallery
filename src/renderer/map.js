@@ -102,6 +102,8 @@ function updateModeToolbar() {
     if (ui.timelineWrap) {
         ui.timelineWrap.classList.toggle('hidden', state.showMap);
     }
+    if (ui.groupByWrap) ui.groupByWrap.classList.toggle('hidden', state.showMap);
+    if (ui.uiFiltersWrap) ui.uiFiltersWrap.classList.toggle('hidden', state.showMap);
     if (ui.mapModeWrap) {
         ui.mapModeWrap.classList.toggle('hidden', !state.showMap);
     }

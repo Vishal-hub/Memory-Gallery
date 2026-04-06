@@ -345,7 +345,8 @@ function createLibraryRefreshManager({ app, db, embeddingWorker, visionFaceWorke
     const polite = true;
     const runtimeOpts = getQueueRuntimeOptions(polite, waitForInteractionIdle);
     const yieldMs = polite ? Math.max(runtimeOpts.yieldMs, 30) : 0;
-    const batchSize = 2;
+    const cpus = require('os').cpus().length;
+    const batchSize = Math.max(2, Math.min(8, Math.floor(cpus / 1.5)));
     const benchmarkBase = {
       reason,
       runType: 'background-refresh',

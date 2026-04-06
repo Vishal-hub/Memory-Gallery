@@ -40,6 +40,8 @@ function updatePeopleStats(people) {
 
 export function showPeopleToolbar() {
     if (ui.timelineWrap) ui.timelineWrap.classList.add('hidden');
+    if (ui.groupByWrap) ui.groupByWrap.classList.add('hidden');
+    if (ui.uiFiltersWrap) ui.uiFiltersWrap.classList.add('hidden');
     if (ui.peopleModeWrap) ui.peopleModeWrap.classList.remove('hidden');
 }
 

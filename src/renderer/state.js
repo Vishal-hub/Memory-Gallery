@@ -90,6 +90,8 @@ export const ui = {
     filterGroupBtn: document.getElementById('filterGroupBtn'),
     floatingRecenterBtn: document.getElementById('floatingRecenterBtn'),
     clearCacheActionBtn: document.getElementById('clearCacheActionBtn'),
+    groupByWrap: document.getElementById('groupByWrap'),
+    uiFiltersWrap: document.getElementById('uiFiltersWrap'),
     groupBySelect: document.getElementById('groupByDropdown'),
     mapPanel: document.getElementById('map-panel'),
     mapModeWrap: document.getElementById('mapModeWrap'),
