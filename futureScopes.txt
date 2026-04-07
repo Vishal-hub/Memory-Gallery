@@ -1,0 +1,41 @@
+Ran command: `npm start`
+Ran command: `npm run rebuild`
+
+To envision the future of **Lumina**, we should focus on features that leverage its local-AI core to provide a "magical" experience that standard photo viewers lack. 
+
+I've outlined a strategic roadmap below focused on AI intelligence, smarter organization, and refined performance.
+
+### **Lumina Development Roadmap**
+
+#### **1. Smart Video Intelligence** (High Priority)
+Since we’ve currently disabled videos by default for performance, the next step is to make them "smart" enough to justify the CPU cost.
+- **Video Keyframing**: Automatically extract significant frames from videos and embed them semantically. This would allow you to search for *"Someone blowing out birthday candles"* and find the exact moment inside a 10-minute video.
+- **Action Recognition**: Specialized AI to detect actions (running, dancing, swimming) within clips.
+
+#### **2. Identity Management (Face Clustering UI)**
+While we have basic face recognition, a dedicated "Who is this?" workflow would elevate the app.
+- **Suggested Grouping**: The AI identifies 50 photos of the same unknown person and asks: *"Is this the same person?"*
+- **Relationship Mapping**: Linking people to build a truly interactive "Family Tree" that populates itself based on who appears in photos together.
+
+#### **3. Semantic Search 2.0**
+Moving beyond simple keywords to complex natural language understanding.
+- **Relational Search**: *"Me and Sarah at the beach"* or *"Photos of the dog near the Christmas tree"*.
+- **Temporal Search**: *"That trip to Italy two summers ago"*.
+
+#### **4. "Moments" & Auto-Collections**
+Using the timeline and GPS data to automatically group photos into "Events."
+- **Trip Summaries**: Lumina detects a cluster of photos in a new city over 3 days and creates a "Travel Journal" view automatically.
+- **Year in Review**: A beautifully curated slideshow of your top-rated or most "meaningful" photos from the past year.
+
+#### **5. Technical & Performance Pillars**
+- **Background Indexing Service**: A lightweight system tray application that monitors your folders and indexes new memories silently, so they are ready the second you open Lumina.
+- **On-Device Encryption**: Implementing a "Private Vault" where specific folders are encrypted and only accessible via a master password/biometrics.
+
+---
+
+### **Which area interests you the most for the next phase?**
+- **Intelligence**: Enhancing the AI's ability to "understand" what's happening in the photos/videos.
+- **Organization**: Auto-creating albums and managing identities.
+- **Stability & Performance**: Making the app feel even lighter and faster.
+
+**Lumina** has the potential to become a true local-first alternative to Google Photos, keeping everything private while being just as smart. What do you think?
